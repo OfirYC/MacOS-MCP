@@ -67,11 +67,13 @@ class TestExecuteCommandOutput:
     def test_nonzero_returncode(self):
         assert ExecuteCommand("exit 7")[1] == 7
 
-    def test_stderr_used_when_stdout_empty(self):
-        assert "oops" in ExecuteCommand("echo oops >&2")[0]
+    def test_stderr_labeled_when_stdout_empty(self):
+        assert ExecuteCommand("echo oops >&2") == ("[stderr]\noops", 0)
 
-    def test_stdout_preferred_over_stderr(self):
-        assert ExecuteCommand("echo out; echo err >&2")[0] == "out"
+    def test_stdout_and_labeled_stderr_with_nonzero_exit(self):
+        assert ExecuteCommand("printf OUT; printf ERR >&2; exit 7") == (
+            "OUT\n[stderr]\nERR", 7
+        )
 
     def test_non_ascii_output(self):
         assert ExecuteCommand("echo '日本語 🎉'")[0] == "日本語 🎉"

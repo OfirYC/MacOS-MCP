@@ -2322,7 +2322,7 @@ def ExecuteCommand(
             err_f.seek(0)
             stdout = out_f.read().decode("utf-8", "replace")
             stderr = err_f.read().decode("utf-8", "replace")
-            output = stdout or stderr or ""
+            output = stdout + (("\n" if stdout else "") + "[stderr]\n" + stderr if stderr else "")
             return (output.strip(), proc.returncode)
     except Exception as e:
         return (str(e), -1)

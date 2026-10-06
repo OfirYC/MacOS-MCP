@@ -4,6 +4,7 @@ macOS-MCP: MCP Server for macOS Desktop Interaction.
 Provides tools to interact with the macOS desktop for automation.
 """
 
+from macos_mcp.desktop.ax_refs import AXRefService
 from macos_mcp.desktop.service import Desktop
 from macos_mcp.desktop.views import Size
 from macos_mcp.watchdog import WatchDog
@@ -48,10 +49,13 @@ import subprocess
 import sys
 from threading import Lock
 import click
+import objc
+import macos_mcp.ax as ax
 
 logger = logging.getLogger(__name__)
 
 desktop: Optional[Desktop] = None
+ax_refs = AXRefService()
 screen_size: Optional[Size] = None
 watchdog: Optional[WatchDog] = None
 analytics: Optional[Analytics] = None
@@ -63,7 +67,35 @@ MAX_IMAGE_WIDTH, MAX_IMAGE_HEIGHT = 1920, 1080
 instructions = dedent("""
 macOS MCP server provides tools to interact directly with the macOS desktop, 
 enabling operation of the desktop on the user's behalf.
+For accessible controls, call ObserveAX on the frontmost app or an explicit
+bundle/PID, then PressAX or SetAXValue with its returned ref. ObserveAX again
+after acting to verify the requested state. A stale ref requires a new
+observation; unsupported AX actions should use a fresh Snapshot and the
+coordinate tools as fallback.
 """)
+
+
+def _ax_call(fn, *args, **kwargs):
+    """Drain PyObjC autoreleases from a pooled worker thread."""
+    with objc.autorelease_pool():
+        return fn(*args, **kwargs)
+
+
+def _ax_owner(ctx: Context | None) -> str:
+    return ctx.session_id if ctx is not None else "direct-call"
+
+
+def _ax_target_pid(pid: int | None, bundle_id: str | None) -> int:
+    if pid is not None:
+        return pid
+    app = (
+        ax.GetRunningApplicationByBundleId(bundle_id)
+        if bundle_id
+        else ax.GetFrontmostApplication()
+    )
+    if app is None or app.PID is None:
+        raise ValueError("Target app is not running; pass a live PID or bundle_id")
+    return app.PID
 
 
 def _stop_watchdog() -> None:
@@ -284,6 +316,76 @@ async def state_tool(use_vision: bool = False, ctx: Context = None):
         [Image(data=desktop_state.screenshot, format="png")]
         if use_vision and desktop_state.screenshot
         else []
+    )
+
+
+@mcp.tool(
+    name="ObserveAX",
+    description=(
+        "Observe a bounded accessibility tree for one macOS app window. Defaults to the "
+        "frontmost app; pass bundle_id or pid for a background app. Returns opaque refs "
+        "bound to this MCP session, process launch, window and exact control. Use "
+        "PressAX/SetAXValue, then ObserveAX again to verify the result."
+    ),
+    annotations=ToolAnnotations(
+        title="ObserveAX",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
+)
+async def observe_ax_tool(
+    pid: int | None = None,
+    bundle_id: str | None = None,
+    window_index: int = 0,
+    ctx: Context = None,
+) -> dict:
+    target_pid = await asyncio.to_thread(_ax_call, _ax_target_pid, pid, bundle_id)
+    return await asyncio.to_thread(
+        _ax_call, ax_refs.observe, _ax_owner(ctx), target_pid, window_index
+    )
+
+
+@mcp.tool(
+    name="PressAX",
+    description=(
+        "Invoke AXPress on a control ref from ObserveAX without a global mouse click. "
+        "Rejects stale, foreign-session, changed-process/window and unsupported refs. "
+        "Call ObserveAX again afterward to verify the outcome."
+    ),
+    annotations=ToolAnnotations(
+        title="PressAX",
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+)
+async def press_ax_tool(ref: str, pid: int | None = None, ctx: Context = None) -> dict:
+    return await asyncio.to_thread(_ax_call, ax_refs.press, _ax_owner(ctx), ref, pid)
+
+
+@mcp.tool(
+    name="SetAXValue",
+    description=(
+        "Set a plain text accessibility value by a ref from ObserveAX and verify the "
+        "exact field value. Rejects stale, foreign-session and unsupported controls with "
+        "an explicit Snapshot/Type fallback. ObserveAX again for broader page state."
+    ),
+    annotations=ToolAnnotations(
+        title="SetAXValue",
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+)
+async def set_ax_value_tool(
+    ref: str, value: str, pid: int | None = None, ctx: Context = None
+) -> dict:
+    return await asyncio.to_thread(
+        _ax_call, ax_refs.set_value, _ax_owner(ctx), ref, value, pid
     )
 
 

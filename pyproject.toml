@@ -1,6 +1,6 @@
 [project]
 name = "macos-mcp"
-version = "0.4.6"
+version = "0.4.7"
 description = "MCP Server for interacting with macOS Desktop."
 authors = [
     { name = "Jeomon George", email = "jeogeoalukka@gmail.com" }
@@ -34,6 +34,7 @@ dependencies = [
     "notebook",
     "ipywidgets",
     "posthog>=3.0.0",
+    "psutil>=7.0.0",
     "uuid7>=0.1.0",
 ]
 

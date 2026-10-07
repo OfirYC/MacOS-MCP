@@ -2468,12 +2468,17 @@ def _clamp_timeout(timeout: int) -> int:
 
 
 def _combine(stdout: str, stderr: str) -> str:
-    """Return both streams. `stdout or stderr` silently dropped stderr whenever
-    a command wrote anything to stdout, hiding errors like
-    `foo: command not found` behind partial success output."""
+    """Return both streams with enough provenance to diagnose command failures.
+
+    `stdout or stderr` silently dropped stderr whenever a command wrote
+    anything to stdout. Plain concatenation kept the bytes but hid which stream
+    produced each line, so a failed command could look like successful output.
+    """
     if stdout and stderr:
-        return stdout.rstrip("\n") + "\n" + stderr
-    return stdout or stderr or ""
+        return "STDOUT:\n" + stdout.rstrip("\n") + "\nSTDERR:\n" + stderr
+    if stderr:
+        return "STDERR:\n" + stderr
+    return stdout or ""
 
 
 def _timeout_message(timeout: int, requested: int, partial: str) -> str:

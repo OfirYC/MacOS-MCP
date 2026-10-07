@@ -71,15 +71,18 @@ class TestExecuteCommandOutput:
     def test_stderr_used_when_stdout_empty(self):
         assert "oops" in ExecuteCommand("echo oops >&2")[0]
 
-    def test_stdout_and_stderr_both_returned(self):
-        """Both streams come back.
+    def test_stdout_and_stderr_are_labeled(self):
+        """Both streams keep their provenance.
 
         `stdout or stderr` used to discard stderr whenever a command wrote
         anything at all to stdout, hiding failures like `foo: command not
         found` behind partial success output.
         """
-        out = ExecuteCommand("echo out; echo err >&2")[0]
-        assert "out" in out and "err" in out
+        out = ExecuteCommand("printf 'out\\n'; printf 'err\\n' >&2")[0]
+        assert out == "STDOUT:\nout\nSTDERR:\nerr"
+
+    def test_stderr_only_is_labeled(self):
+        assert ExecuteCommand("printf 'err\\n' >&2")[0] == "STDERR:\nerr"
 
     def test_non_ascii_output(self):
         assert ExecuteCommand("echo '日本語 🎉'")[0] == "日本語 🎉"

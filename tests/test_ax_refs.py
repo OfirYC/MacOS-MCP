@@ -80,8 +80,27 @@ def world(monkeypatch):
         "SetAttribute",
         lambda element, key, value: _set(element, key, value),
     )
-    monkeypatch.setattr(ax_refs, "_running_app", lambda pid: running.get(pid))
+    class Process:
+        def __init__(self, pid):
+            self.pid = pid
+
+        def create_time(self):
+            if self.pid not in running:
+                raise ax_refs.psutil.NoSuchProcess(self.pid)
+            return running[self.pid].generation
+
+    monkeypatch.setattr(ax_refs.psutil, "Process", Process)
+    def bundle_id(pid):
+        return running[pid].bundle if pid in running else None
+
+    monkeypatch.setattr(ax_refs, "_bundle_id", bundle_id)
     return ax_refs.AXRefService(), apps, running
+
+
+def test_process_start_time_binds_an_app_without_launch_date(world):
+    service, _, running = world
+    running[101].launchDate = lambda: None
+    assert service.observe("chat-a", 101)["pid"] == 101
 
 
 def _press(element, key):

@@ -5,6 +5,7 @@ import time
 from collections import OrderedDict, deque
 from dataclasses import dataclass
 
+import psutil
 from Cocoa import NSRunningApplication
 
 import macos_mcp.ax as ax
@@ -32,23 +33,18 @@ ACTION_ROLES = frozenset(
 VALUE_ROLES = frozenset({"AXTextField", "AXTextArea", "AXComboBox"})
 
 
-def _running_app(pid: int):
-    return NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+def _identity(pid: int) -> float | None:
+    """Bind a PID to its kernel process start time, even before AppKit registers it."""
+    try:
+        return float(psutil.Process(pid).create_time())
+    except (psutil.Error, OSError, ValueError):
+        return None
 
 
-def _identity(pid: int) -> tuple[str | None, float] | None:
-    """Return bundle and launch instant, failing closed if the PID cannot be bound."""
-    app = _running_app(pid)
-    if app is None or app.processIdentifier() != pid:
-        return None
-    launched = app.launchDate()
-    if launched is None:
-        return None
-    bundle = app.bundleIdentifier()
-    return (
-        str(bundle) if bundle else None,
-        float(launched.timeIntervalSinceReferenceDate()),
-    )
+def _bundle_id(pid: int) -> str | None:
+    app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+    bundle = app.bundleIdentifier() if app is not None else None
+    return str(bundle) if bundle else None
 
 
 def _same_element(left, right) -> bool:
@@ -59,7 +55,7 @@ def _same_element(left, right) -> bool:
 class _Ref:
     owner: str
     pid: int
-    identity: tuple[str | None, float]
+    identity: float
     window: object
     element: object
     role: str
@@ -164,7 +160,7 @@ class AXRefService:
             self._refs.popitem(last=False)
         return {
             "pid": pid,
-            "bundle_id": identity[0],
+            "bundle_id": _bundle_id(pid),
             "window_index": window_index,
             "window_title": str(ax.GetAttribute(window, "AXTitle") or "")[:160],
             "windows": [

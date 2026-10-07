@@ -36,6 +36,9 @@ field.placeholderString = "Name"
 field.setAccessibilityLabel("Name")
 window.contentView?.addSubview(field)
 
-window.orderBack(nil)
+window.orderFrontRegardless()
+try? String(window.windowNumber).write(
+    toFile: arguments[1] + ".window", atomically: true, encoding: .utf8
+)
 Timer.scheduledTimer(withTimeInterval: 120, repeats: false) { _ in app.terminate(nil) }
 app.run()
